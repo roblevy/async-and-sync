@@ -1,28 +1,33 @@
+""" See https://stackoverflow.com/questions/58564687/test-if-coroutine-was-awaited-or-not/58567980#58567980 """
 import asyncio
 import pytest
 from functools import wraps
 
 
+class Wrapper:
+    def __init__(self, _func, *args, **kwargs):
+        self._conn = None
+        self._func = _func
+        self.args = args
+        self.kwargs = kwargs
+
+    async def __aenter__(self):
+        self._conn = await self._func(*self.args, **self.kwargs)
+        return self._conn
+
+    async def __aexit__(self, *_):
+        await self._conn.close()
+
+    def __await__(self):
+        return self._func(
+            *self.args, **self.kwargs
+        ).__await__()  # https://stackoverflow.com/a/33420721/1113207
+
+
 def connection_context_manager(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
-        class Wrapper:
-            def __init__(self):
-                self._conn = None
-
-            async def __aenter__(self):
-                self._conn = await func(*args, **kwargs)
-                return self._conn
-
-            async def __aexit__(self, *_):
-                await self._conn.close()
-
-            def __await__(self):
-                return func(
-                    *args, **kwargs
-                ).__await__()  # https://stackoverflow.com/a/33420721/1113207
-
-        return Wrapper()
+        return Wrapper(func, *args, **kwargs)
 
     return wrapper
 
@@ -49,7 +54,6 @@ async def connect(uri):
     return Connection(uri)
 
 
-# @wraps(connect)
 @pytest.mark.asyncio
 async def test_connect_normally():
     connect_is_coroutine = asyncio.iscoroutine(connect)
